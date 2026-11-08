@@ -170,18 +170,21 @@ static void drv_SL_simple_write(const int row, const int col, const char *data, 
 
 static void drv_SL_vt100_write(const int row, const int col, const char *data, int len)
 {
-    char cmd[8];
-    cmd[0] = 0x1b;
-    cmd[1] = '[';
-    cmd[2] = row + '1';
-    cmd[3] = ';';
-    cmd[4] = (col / 10) + '0';
-    cmd[5] = (col % 10) + '1';
-    cmd[6] = 'H';
-    drv_generic_serial_write(cmd, 7);
+    char cmd[32];
+    int cmd_len;
+
+    if (row < 0 || col < 0)
+        return;
+
+    cmd_len = snprintf(cmd, sizeof(cmd), "\033[%02d;%02dH",
+                       row + 1, col + 1);
+
+    if (cmd_len < 0 || cmd_len >= (int)sizeof(cmd))
+        return;
+
+    drv_generic_serial_write(cmd, cmd_len);
     drv_generic_serial_write(data, len);
 }
-
 
 static int drv_SL_start(const char *section, const int quiet)
 {
