@@ -1,0 +1,88 @@
+
+name: Build LCD4Linux DEB (Ubuntu 24.04)
+
+on:
+  push:
+    branches:
+      - trunk
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Enable source repositories
+        run: |
+          sudo sed -i \
+            's/^Types: deb$/Types: deb deb-src/' \
+            /etc/apt/sources.list.d/ubuntu.sources
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            devscripts
+
+          sudo apt-get build-dep -y lcd4linux
+
+      - name: Download Ubuntu source package
+        run: |
+          mkdir -p "$RUNNER_TEMP/lcd-build"
+          cd "$RUNNER_TEMP/lcd-build"
+
+          apt-get source lcd4linux
+
+      - name: Apply forked driver and build DEB
+        run: |
+          set -euxo pipefail
+
+          cd "$RUNNER_TEMP/lcd-build"
+
+          SRC_DIR=$(find . -maxdepth 1 \
+            -type d -name 'lcd4linux-*' \
+            -print -quit)
+
+          test -n "$SRC_DIR"
+
+          # Replace original driver with forked version
+          cp "$GITHUB_WORKSPACE/drv_SimpleLCD.c" \
+             "$SRC_DIR/drv_SimpleLCD.c"
+
+          cd "$SRC_DIR"
+
+          # Verify patched source
+          grep -q 'snprintf(cmd' drv_SimpleLCD.c
+
+          # Create a version newer than Ubuntu's package
+          BASE_VERSION=$(dpkg-parsechangelog -S Version)
+          NEW_VERSION="${BASE_VERSION}+xsysel1"
+
+          export DEBEMAIL="github-actions@example.invalid"
+          export DEBFULLNAME="GitHub Actions"
+
+          dch --newversion "$NEW_VERSION" \
+              --distribution noble \
+              "Fix SimpleLCD VT100 cursor positioning."
+
+          # Build binary Debian packages
+          dpkg-buildpackage -us -uc -b
+
+          # Collect resulting packages
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp ../*.deb "$GITHUB_WORKSPACE/dist/"
+
+      - name: Upload DEB packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcd4linux-ubuntu-24.04-amd64
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 30
